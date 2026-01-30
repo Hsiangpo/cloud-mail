@@ -10,6 +10,29 @@ export default {
 
 		const url = new URL(req.url)
 
+		if (url.pathname === '/api/webhook' || url.pathname === '/api/webhook/') {
+			if (!env.WEBHOOK_FORWARD_URL) {
+				return new Response('Webhook forward not configured', { status: 502 });
+			}
+			try {
+				const target = new URL(env.WEBHOOK_FORWARD_URL);
+				if (target.host === url.host) {
+					return new Response('Webhook forward loop', { status: 500 });
+				}
+			} catch (e) {
+				return new Response('Invalid WEBHOOK_FORWARD_URL', { status: 500 });
+			}
+			const forwardHeaders = new Headers(req.headers);
+			forwardHeaders.set('X-Forwarded-Host', url.host);
+			forwardHeaders.set('X-Forwarded-Proto', url.protocol.replace(':', ''));
+			return fetch(env.WEBHOOK_FORWARD_URL, {
+				method: req.method,
+				headers: forwardHeaders,
+				body: req.body,
+				redirect: 'manual'
+			});
+		}
+
 		if (url.pathname.startsWith('/api/')) {
 			url.pathname = url.pathname.replace('/api', '')
 			req = new Request(url.toString(), req)
