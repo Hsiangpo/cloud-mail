@@ -162,6 +162,14 @@ export async function email(message, env, ctx) {
 
 		emailRow = await emailService.completeReceive({ env }, account ? emailConst.status.RECEIVE : emailConst.status.NOONE, emailRow.emailId);
 
+		// Webhook push (optional)
+		if (env.WEBHOOK_URL) {
+			const payload = buildWebhookPayload(message, email, emailRow, env);
+			if (payload) {
+				ctx.waitUntil(sendWebhook(env, payload));
+			}
+		}
+
 
 		if (ruleType === settingConst.ruleType.RULE) {
 
@@ -173,12 +181,12 @@ export async function email(message, env, ctx) {
 
 		}
 
-		//转发到TG
+		//杞彂鍒癟G
 		if (tgBotStatus === settingConst.tgBotStatus.OPEN && tgChatId) {
 			await telegramService.sendEmailToBot({ env }, emailRow)
 		}
 
-		//转发到其他邮箱
+		//杞彂鍒板叾浠栭偖绠?
 		if (forwardStatus === settingConst.forwardStatus.OPEN && forwardEmail) {
 
 			const emails = forwardEmail.split(',');
@@ -188,7 +196,7 @@ export async function email(message, env, ctx) {
 				try {
 					await message.forward(email);
 				} catch (e) {
-					console.error(`转发邮箱 ${email} 失败：`, e);
+					console.error(`杞彂閭 ${email} 澶辫触锛歚, e);
 				}
 
 			}));
@@ -196,11 +204,73 @@ export async function email(message, env, ctx) {
 		}
 
 	} catch (e) {
-		console.error('邮件接收异常: ', e);
+		console.error('閭欢鎺ユ敹寮傚父: ', e);
 		throw e
 	}
 }
 
+function buildWebhookPayload(message, email, emailRow, env) {
+	const onlyOtp = String(env.WEBHOOK_ONLY_OTP || '').toLowerCase() === 'true';
+	const otp = extractOtp(email);
+	if (onlyOtp && !otp) {
+		return null;
+	}
+	return {
+		event: 'email.received',
+		messageId: email.messageId,
+		emailId: emailRow.emailId,
+		accountId: emailRow.accountId,
+		userId: emailRow.userId,
+		toEmail: message.to,
+		fromEmail: email.from?.address,
+		subject: email.subject,
+		text: email.text,
+		html: email.html,
+		otp,
+		receivedAt: new Date().toISOString()
+	};
+}
+
+function extractOtp(email) {
+	const candidates = [email.subject, email.text, email.html].filter(Boolean).join(' ');
+	const match = candidates.match(/\b(\d{6})\b/);
+	return match ? match[1] : null;
+}
+
+async function sendWebhook(env, payload) {
+	try {
+		const body = JSON.stringify(payload);
+		const headers = {
+			'Content-Type': 'application/json',
+			'X-Webhook-Event': payload.event,
+			'X-Webhook-Source': 'cloud-mail'
+		};
+		if (env.WEBHOOK_SECRET) {
+			const signature = await signBody(env.WEBHOOK_SECRET, body);
+			headers['X-Webhook-Signature'] = `sha256=${signature}`;
+		}
+		await fetch(env.WEBHOOK_URL, {
+			method: 'POST',
+			headers,
+			body
+		});
+	} catch (e) {
+		console.error('Webhook push failed', e);
+	}
+}
+
+async function signBody(secret, body) {
+	const enc = new TextEncoder();
+	const key = await crypto.subtle.importKey(
+		'raw',
+		enc.encode(secret),
+		{ name: 'HMAC', hash: 'SHA-256' },
+		false,
+		['sign']
+	);
+	const sig = await crypto.subtle.sign('HMAC', key, enc.encode(body));
+	return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 function banEmailHandler(banEmailType, message, email) {
 
 	if (banEmailType === roleConst.banEmailType.ALL) {
