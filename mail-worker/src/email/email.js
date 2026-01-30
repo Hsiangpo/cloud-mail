@@ -181,12 +181,12 @@ export async function email(message, env, ctx) {
 
 		}
 
-		//杞彂鍒癟G
+		//转发到TG
 		if (tgBotStatus === settingConst.tgBotStatus.OPEN && tgChatId) {
 			await telegramService.sendEmailToBot({ env }, emailRow)
 		}
 
-		//杞彂鍒板叾浠栭偖绠?
+		//转发到其他邮箱
 		if (forwardStatus === settingConst.forwardStatus.OPEN && forwardEmail) {
 
 			const emails = forwardEmail.split(',');
@@ -196,7 +196,7 @@ export async function email(message, env, ctx) {
 				try {
 					await message.forward(email);
 				} catch (e) {
-					console.error(`杞彂閭 ${email} 澶辫触锛歚, e);
+					console.error(`转发邮箱 ${email} 失败：`, e);
 				}
 
 			}));
@@ -204,7 +204,7 @@ export async function email(message, env, ctx) {
 		}
 
 	} catch (e) {
-		console.error('閭欢鎺ユ敹寮傚父: ', e);
+		console.error('邮件接收异常: ', e);
 		throw e
 	}
 }
@@ -247,7 +247,7 @@ async function sendWebhook(env, payload) {
 		};
 		if (env.WEBHOOK_SECRET) {
 			const signature = await signBody(env.WEBHOOK_SECRET, body);
-			headers['X-Webhook-Signature'] = `sha256=${signature}`;
+			headers['X-Webhook-Signature'] = 'sha256=' + signature;
 		}
 		await fetch(env.WEBHOOK_URL, {
 			method: 'POST',
